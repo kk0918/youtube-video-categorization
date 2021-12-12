@@ -6,6 +6,7 @@ output: pdf
 ---
 
 ```{r setup, include=FALSE}
+# Data source from https://www.kaggle.com/datasnaek/youtube 
 
 us_video <- read_csv("./archive/USVideos.csv")
 us_comments <- read_csv("./archive/UScomments.csv")
