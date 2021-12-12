@@ -1,0 +1,13 @@
+---
+title: "Final_Project"
+author: "Billy Kwon and Yixuan Li"
+date: "12/12/2021"
+output: pdf
+---
+
+```{r setup, include=FALSE}
+
+us_video <- read_csv("./archive/USVideos.csv")
+us_comments <- read_csv("./archive/UScomments.csv")
+
+```
