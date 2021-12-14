@@ -5,10 +5,58 @@ date: "12/12/2021"
 output: pdf
 ---
 
-```{r setup, include=FALSE}
-# Data source from https://www.kaggle.com/datasnaek/youtube 
+```{r data setup, include=FALSE}
+# Load packages -----------------------------------------------------------
+library(jsonlite)
+library(dplyr)
+library(ggplot2)
 
-us_video <- read_csv("./archive/USVideos.csv")
-us_comments <- read_csv("./archive/UScomments.csv")
+# Clean and load data -----------------------------------------------------
+# Data source from https://www.kaggle.com/datasnaek/youtube-new?select=USvideos.csv 
+
+us_video <- read.csv(file = "archive/USVideos.csv")
+us_categories <- fromJSON("archive/US_category_id.json", flatten=TRUE)
+us_categories <- us_categories[["items"]]
+
+# merge two datasets and select columns
+us_categories <- us_categories %>%
+  rename(category_id = id, category_title = snippet.title) %>%
+  mutate(category_id = as.integer(category_id))
+us_video <- merge(x = us_video, y = us_categories, by = "category_id", all.x=TRUE)
+us_df <- us_video %>% select(views,likes, dislikes, comment_count, comments_disabled, ratings_disabled, video_error_or_removed, category_title, title, tags)
 
 ```
+
+
+```{r data discribtion}
+summary(us_df)
+```
+
+
+
+```{r counts of each category}
+us_df %>% group_by(category_title) %>% 
+  summarize(counts = n()) %>%
+  arrange(-counts) %>%                                
+  mutate(category_title = factor(category_title, category_title)) %>%   
+  ggplot(aes(x=category_title, y=counts, color=category_title)) + 
+  geom_bar(stat="identity") +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+
+```{r plot views by categories}
+us_df %>% ggplot(aes(x=category_title, y=views, color=category_title)) + geom_point() +
+    theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r plot comments by categories}
+us_df %>% ggplot(aes(x=category_title, y=comment_count, color=category_title)) + geom_point() +
+    theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r plot comments v.s. views}
+us_df %>% ggplot(aes(x=views, y=comment_count, color=category_title)) + geom_point() +
+    theme(axis.text.x = element_text(angle = 90))
+```
+
