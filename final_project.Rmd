@@ -2,7 +2,7 @@
 title: "Final_Project"
 author: "Billy Kwon and Yixuan Li"
 date: "12/12/2021"
-output: pdf
+output: pdf_document
 ---
 
 ```{r data setup, include=FALSE}
@@ -10,53 +10,97 @@ output: pdf
 library(jsonlite)
 library(dplyr)
 library(ggplot2)
+library(tidymodels)
 
 # Clean and load data -----------------------------------------------------
 # Data source from https://www.kaggle.com/datasnaek/youtube-new?select=USvideos.csv 
 
-us_video <- read.csv(file = "archive/USVideos.csv")
-us_categories <- fromJSON("archive/US_category_id.json", flatten=TRUE)
-us_categories <- us_categories[["items"]]
+# TODO: Determine whether to use all countries or a subset
+countries <- c("CA", "DE", "FR", "GB", "IN", "JP", "KR", "MX", "RU", "US")
 
-# merge two datasets and select columns
-us_categories <- us_categories %>%
-  rename(category_id = id, category_title = snippet.title) %>%
-  mutate(category_id = as.integer(category_id))
-us_video <- merge(x = us_video, y = us_categories, by = "category_id", all.x=TRUE)
-us_df <- us_video %>% select(views,likes, dislikes, comment_count, comments_disabled, ratings_disabled, video_error_or_removed, category_title, title, tags)
+### Function to load data per country 
+load_country_data <- function(countries) {
+  df = data.frame()
+  
+  for (country in countries) {
+    video <- read.csv(file = paste("archive/", country, "Videos.csv", sep=""))
+    categories <- fromJSON(paste("archive/", country, "_category_id.json", sep=""), flatten = TRUE)
+    categories <- categories[["items"]] 
+    
+    # merge video and category datasets and select columns
+    categories <- categories %>% 
+      rename(category_id = id, category_title = snippet.title) %>% 
+      mutate(category_id = as.integer(category_id))
+    video <- merge(x = video, y = categories, by = "category_id", all.x=TRUE) 
+    country_df <- video %>% 
+      mutate(comments_disabled = as.logical(comments_disabled)) %>%
+      mutate(ratings_disabled = as.logical(ratings_disabled)) %>%
+      mutate(video_error_or_removed = as.logical(video_error_or_removed)) %>%
+      select(trending_date, views,likes, dislikes, comment_count, comments_disabled,
+             ratings_disabled, video_error_or_removed, category_title, title, tags)
+    
+    # filter out duplicate trending videos, keep row from first time the video trends
+    country_df <- country_df %>% group_by(title) %>% arrange(trending_date) %>% slice_head(n = 1) 
 
+    df <- rbind(df, country_df)
+  }
+  
+  df
+}
+
+all_videos_df <- load_country_data(countries = countries)
 ```
 
 
-```{r data discribtion}
-summary(us_df)
+```{r data description}
+summary(all_videos_df)
 ```
 
-
+### Visualization
 
 ```{r counts of each category}
-us_df %>% group_by(category_title) %>% 
+all_videos_df %>% group_by(category_title) %>% 
   summarize(counts = n()) %>%
   arrange(-counts) %>%                                
   mutate(category_title = factor(category_title, category_title)) %>%   
   ggplot(aes(x=category_title, y=counts, color=category_title)) + 
   geom_bar(stat="identity") +
-  theme(axis.text.x = element_text(angle = 90))
+  theme(axis.text.x = element_text(angle = 90)) +
+  ggtitle("Trending Category Video Counts") + theme(plot.title = element_text(hjust = 0.5))
 ```
 
 
 ```{r plot views by categories}
-us_df %>% ggplot(aes(x=category_title, y=views, color=category_title)) + geom_point() +
-    theme(axis.text.x = element_text(angle = 90))
+all_videos_df %>% ggplot(aes(x=category_title, y=views, color=category_title)) + geom_point() +
+    theme(axis.text.x = element_text(angle = 90)) +
+    ggtitle("Trending Category Video Views") + theme(plot.title = element_text(hjust = 0.5))
 ```
 
 ```{r plot comments by categories}
-us_df %>% ggplot(aes(x=category_title, y=comment_count, color=category_title)) + geom_point() +
-    theme(axis.text.x = element_text(angle = 90))
+all_videos_df %>% ggplot(aes(x=category_title, y=comment_count, color=category_title)) +
+  geom_point() + theme(axis.text.x = element_text(angle = 90)) + 
+  ggtitle("Trending Category Video Comment Count") + theme(plot.title = element_text(hjust = 0.5))
+
 ```
 
 ```{r plot comments v.s. views}
-us_df %>% ggplot(aes(x=views, y=comment_count, color=category_title)) + geom_point() +
-    theme(axis.text.x = element_text(angle = 90))
+all_videos_df %>% ggplot(aes(x=views, y=comment_count, color=category_title)) +
+  geom_point() + theme(axis.text.x = element_text(angle = 90)) +
+  ggtitle("Trending Views vs Comment Counts per Category") + theme(plot.title = element_text(hjust = 0.5))
+```
+### Analysis Part One - Raw Data
+The first analysis seeks to create a model to classify trending youtube videos into their corresponding Youtube category based on the raw data. 
+
+```{r Analysis Part One}
+set.seed(20211213) 
+# Split data into 80/20, training and testing respectively
+all_split <- initial_split(all_videos_df, prob = 0.8)
+all_train <- training(all_split)
+all_test <- testing(all_split)
 ```
 
+### Analysis Part Two - Feature Engineering
+The second analysis builds on the first analysis by adding more engineered features and determining the impact these features have on the model itself.
+```{r Analysis Part two}
+
+```
