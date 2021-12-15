@@ -143,11 +143,54 @@ summary(conf_mat_results)
 ### Analysis Part Two - Reduce number of categories 
 In the first analysis, we classified the videos into 44 specific categories; perhaps, we can reduce the number of categories from 44 specific categories to 4 broader, more encompassing categories and examine if we can obtain a better result.
 
+```{r Analysis Part Two}
+# reduce categories into 4 broader categories
+all_videos_df <- all_videos_df %>% 
+  mutate(broad_category = case_when(category_title %in% c("Sports", "Travel & Events", "People & Blogs", "Autos & Vehicles", "Gaming") ~ "Activities", 
+                                    category_title %in%  c("Entertainment", "Pets & Animals") ~ "Others", 
+                                    category_title %in% c("Comedy", "Film & Animation", "Shows",  "Music") ~ "Entertainment", 
+                                    TRUE ~ "Education")) 
+all_videos_df %>% count(broad_category)
+
+# Split data into 80/20, training and testing respectively
+broad_split <- initial_split(all_videos_df, prob = 0.8, strata = broad_category)
+broad_train <- training(broad_split)
+broad_test <- testing(broad_split)
+
+# Perform pre processing
+training_br <- broad_train %>% mutate(broad_category = as.ordered(broad_category))
+testing_br <- broad_test %>% mutate(broad_category = as.ordered(broad_category))
+
+# recipe for broader categories
+broad_recipe <- 
+  recipe(broad_category ~ views + likes + dislikes + comment_count +
+           comments_disabled + ratings_disabled + video_error_or_removed,
+         data = training_br) %>% 
+  step_center(all_numeric_predictors()) %>% 
+  step_scale(all_numeric_predictors()) %>%
+  prep()
+
+rf_wf_br <- workflow() %>% 
+  add_model(rf_model) %>% 
+  add_recipe(broad_recipe)
+
+rf_fit_br <- fit(rf_wf_br, training_br)
+conf_mat_results_br <- bind_cols(testing_br,
+          predict(rf_fit_br, new_data = testing_br)) %>%
+  conf_mat(truth = broad_category, estimate = .pred_class)
+
+conf_mat_results_br
+summary(conf_mat_results_br)
+
+```
+
+
+
 ### Analysis Part Three - Feature Engineering
 The third analysis builds on the first analysis by adding more engineered features and determining the impact these features have on the model itself. 
 
 ## Assign sentiment scores to description 
-```{r Analysis Part two}
+```{r Analysis Part Three}
 # TODO: Determine if we even want to try this; clean description data if so (ex. remove website links and other unnecessary)
 
 # Encoding
