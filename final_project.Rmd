@@ -11,12 +11,19 @@ library(jsonlite)
 library(dplyr)
 library(ggplot2)
 library(tidymodels)
+library(sentimentr)
+
+# Parallelize
+if (.Platform$OS.type == "windows") {
+  doParallel::registerDoParallel(parallel::detectCores())
+} else doMC::registerDoMC(parallel::detectCores())
 
 # Clean and load data -----------------------------------------------------
 # Data source from https://www.kaggle.com/datasnaek/youtube-new?select=USvideos.csv 
 
-# TODO: Determine whether to use all countries or a subset
-countries <- c("CA", "DE", "FR", "GB", "IN", "JP", "KR", "MX", "RU", "US")
+# TODO: Determine whether to use all countries or a subset. Currently set to just US for sake of speed while developing and tuning our models.
+# countries <- c("CA", "DE", "FR", "GB", "IN", "JP", "KR", "MX", "RU", "US")
+countries <- c("US")  
 
 ### Function to load data per country 
 load_country_data <- function(countries) {
@@ -36,11 +43,11 @@ load_country_data <- function(countries) {
       mutate(comments_disabled = as.logical(comments_disabled)) %>%
       mutate(ratings_disabled = as.logical(ratings_disabled)) %>%
       mutate(video_error_or_removed = as.logical(video_error_or_removed)) %>%
-      select(trending_date, views,likes, dislikes, comment_count, comments_disabled,
-             ratings_disabled, video_error_or_removed, category_title, title, tags)
+      select(trending_date, views, likes, dislikes, comment_count, comments_disabled,
+             ratings_disabled, video_error_or_removed, category_title, title, description, tags)
     
     # filter out duplicate trending videos, keep row from first time the video trends
-    country_df <- country_df %>% group_by(title) %>% arrange(trending_date) %>% slice_head(n = 1) 
+    country_df <- country_df %>% group_by(title) %>% arrange(trending_date) %>% slice_head(n = 1) %>% ungroup() 
 
     df <- rbind(df, country_df)
   }
@@ -88,19 +95,71 @@ all_videos_df %>% ggplot(aes(x=views, y=comment_count, color=category_title)) +
   geom_point() + theme(axis.text.x = element_text(angle = 90)) +
   ggtitle("Trending Views vs Comment Counts per Category") + theme(plot.title = element_text(hjust = 0.5))
 ```
+
 ### Analysis Part One - Raw Data
 The first analysis seeks to create a model to classify trending youtube videos into their corresponding Youtube category based on the raw data. 
 
 ```{r Analysis Part One}
 set.seed(20211213) 
 # Split data into 80/20, training and testing respectively
-all_split <- initial_split(all_videos_df, prob = 0.8)
+all_split <- initial_split(all_videos_df, prob = 0.8, strata = category_title)
 all_train <- training(all_split)
 all_test <- testing(all_split)
+
+# Perform pre processing
+training <- all_train %>% mutate(category_title = as.ordered(category_title))
+testing <- all_test %>% mutate(category_title = as.ordered(category_title))
+
+# Basic recipe
+base_recipe <- 
+  recipe(category_title ~ views + likes + dislikes + comment_count +
+           comments_disabled + ratings_disabled + video_error_or_removed,
+         data = training) %>% 
+  step_center(all_numeric_predictors()) %>% 
+  step_scale(all_numeric_predictors()) %>%
+  prep()
+
+# Random forest
+rf_model <- rand_forest() %>%
+  set_engine("randomForest",
+             num.threads = parallel::detectCores(), 
+             importance = TRUE, 
+             verbose = TRUE) %>% 
+  set_mode("classification") %>% 
+  set_args(trees = 1500)
+
+rf_wf <- workflow() %>% 
+  add_model(rf_model) %>% 
+  add_recipe(base_recipe)
+
+rf_fit <- fit(rf_wf, training)
+conf_mat_results <- bind_cols(testing,
+          predict(rf_fit, new_data = testing)) %>%
+  conf_mat(truth = category_title, estimate = .pred_class)
+
+conf_mat_results
+summary(conf_mat_results)
 ```
+### Analysis Part Two - Reduce number of categories 
+In the first analysis, we classified the videos into 44 specific categories; perhaps, we can reduce the number of categories from 44 specific categories to 4 broader, more encompassing categories and examine if we can obtain a better result.
 
-### Analysis Part Two - Feature Engineering
-The second analysis builds on the first analysis by adding more engineered features and determining the impact these features have on the model itself.
+### Analysis Part Three - Feature Engineering
+The third analysis builds on the first analysis by adding more engineered features and determining the impact these features have on the model itself. 
+
+## Assign sentiment scores to description 
 ```{r Analysis Part two}
+# TODO: Determine if we even want to try this; clean description data if so (ex. remove website links and other unnecessary)
 
+# Encoding
+all_videos_df <- mutate(all_videos_df,
+                   description = iconv(description, from = "UTF-8", to = "ASCII//TRANSLIT", 
+                                sub = "byte"))
+
+# TODO: This is super slow for large DF
+avg_description_sentiments <- all_videos_df %>% 
+  select(description) %>%
+  get_sentences() %>%
+  sentiment_by()
+
+all_videos_with_description_sentiment <- bind_cols(all_videos_df, avg_description_sentiments)
 ```
