@@ -11,6 +11,7 @@ library(jsonlite)
 library(dplyr)
 library(ggplot2)
 library(tidymodels)
+library(stringr)
 library(sentimentr)
 
 # Parallelize
@@ -196,7 +197,9 @@ The third analysis builds on the first analysis by adding more engineered featur
 # Encoding
 all_videos_df <- mutate(all_videos_df,
                    description = iconv(description, from = "UTF-8", to = "ASCII//TRANSLIT", 
-                                sub = "byte"))
+                                sub = "byte"),
+                   description = str_remove(description, pattern = "[[:punct:]]+"),
+                   description = tolower(description))
 
 # TODO: This is super slow for large DF
 avg_description_sentiments <- all_videos_df %>% 
