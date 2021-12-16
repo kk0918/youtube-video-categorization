@@ -141,16 +141,59 @@ conf_mat_results <- bind_cols(testing,
 conf_mat_results
 summary(conf_mat_results)
 ```
+## Tune Random Forest Parameters to view and quantify improvements
+```{r Analysis Part One Tuned parameters}
+# Tune Random Forest Parameters: mtry and min_n 
+# mtry = number of predictors that will be randomly sampled at each split when creating tree models
+# min_n = minimum number of data points in node required for node to be split further
+
+rf_model_tune <- rand_forest(mtry = tune(), min_n = tune()) %>%
+  set_engine("randomForest",
+             num.threads = parallel::detectCores(), 
+             importance = TRUE, 
+             verbose = TRUE) %>% 
+  set_mode("classification") %>% 
+  set_args(trees = 1000)
+
+trees_folds <- vfold_cv(all_train)
+
+tune_recipe <- base_recipe
+
+rf_tuned_wf <- workflow() %>% 
+  add_model(rf_model_tune) %>% 
+  add_recipe(tune_recipe)
+
+tuned_results <- tune_grid(rf_tuned_wf, resamples = trees_folds, grid = 10)
+
+most_accurate <- 
+  tuned_results %>% 
+  select_best("accuracy")
+
+most_accurate
+
+final_tuned_wf <- finalize_workflow(rf_tuned_wf, most_accurate)
+
+rf_tuned_fit <- fit(final_tuned_wf, training)
+conf_mat_tuned_results <- bind_cols(testing,
+          predict(rf_tuned_fit, new_data = testing)) %>%
+  conf_mat(truth = category_title, estimate = .pred_class)
+
+conf_mat_tuned_results
+summary(conf_mat_tuned_results)
+```
+
 ### Analysis Part Two - Reduce number of categories 
 In the first analysis, we classified the videos into 44 specific categories; perhaps, we can reduce the number of categories from 44 specific categories to 4 broader, more encompassing categories and examine if we can obtain a better result.
 
 ```{r Analysis Part Two}
-# reduce categories into 4 broader categories
+# Reduce categories into 4 broader categories
 all_videos_df <- all_videos_df %>% 
-  mutate(broad_category = case_when(category_title %in% c("Sports", "Travel & Events", "People & Blogs", "Autos & Vehicles", "Gaming") ~ "Activities", 
-                                    category_title %in%  c("Entertainment", "Pets & Animals") ~ "Others", 
-                                    category_title %in% c("Comedy", "Film & Animation", "Shows",  "Music") ~ "Entertainment", 
-                                    TRUE ~ "Education")) 
+  mutate(broad_category = case_when(category_title %in% c("Sports", "Travel & Events", "People & Blogs", "Autos & Vehicles",
+                                                          "Gaming", "Pets & Animals", "Videoblogging") ~ "Activities", 
+                                    category_title %in%  c("Entertainment") ~ "Entertainment", 
+                                    category_title %in% c("Comedy", "Movies", "Film & Animation", "Shows",
+                                                          "Trailers", "Music") ~ "Film & TV", 
+                                    TRUE ~ "Other")) 
 all_videos_df %>% count(broad_category)
 
 # Split data into 80/20, training and testing respectively
@@ -182,10 +225,46 @@ conf_mat_results_br <- bind_cols(testing_br,
 
 conf_mat_results_br
 summary(conf_mat_results_br)
-
 ```
+## Tune Random Forest Parameters to view and quantify improvements
+Again, we will tune the random forest parameters, mtry and min_n, to quantify how much of an improvement we can obtain.
+```{r Analysis Part Two Tuned parameters}
+# Tune Random Forest Parameters: mtry and min_n 
 
+rf_model_tune_br <- rand_forest(mtry = tune(), min_n = tune()) %>%
+  set_engine("randomForest",
+             num.threads = parallel::detectCores(), 
+             importance = TRUE, 
+             verbose = TRUE) %>% 
+  set_mode("classification")  %>% 
+  set_args(trees = 1000)
 
+trees_folds_br <- vfold_cv(training_br)
+
+tune_recipe_br <- broad_recipe
+
+rf_tuned_wf_br <- workflow() %>% 
+  add_model(rf_model_tune_br) %>% 
+  add_recipe(tune_recipe_br)
+
+tuned_results_br <- tune_grid(rf_tuned_wf_br, resamples = trees_folds_br, grid = 10)
+
+most_accurate_br <- 
+  tuned_results_br %>% 
+  select_best("accuracy")
+
+most_accurate
+
+final_tuned_wf_br <- finalize_workflow(rf_tuned_wf_br, most_accurate_br)
+
+rf_tuned_fit_br <- fit(final_tuned_wf_br, training_br)
+conf_mat_tuned_results_br <- bind_cols(testing_br,
+          predict(rf_tuned_fit_br, new_data = testing_br)) %>%
+  conf_mat(truth = broad_category, estimate = .pred_class)
+
+conf_mat_tuned_results
+summary(conf_mat_tuned_results)
+```
 
 ### Analysis Part Three - Feature Engineering
 The third analysis builds on the first analysis by adding more engineered features and determining the impact these features have on the model itself. 
@@ -195,11 +274,14 @@ The third analysis builds on the first analysis by adding more engineered featur
 # TODO: Determine if we even want to try this; clean description data if so (ex. remove website links and other unnecessary)
 
 # Encoding
-all_videos_df <- mutate(all_videos_df,
+all_videos_df
+test <- mutate(all_videos_df,
                    description = iconv(description, from = "UTF-8", to = "ASCII//TRANSLIT", 
                                 sub = "byte"),
-                   description = str_remove(description, pattern = "[[:punct:]]+"),
-                   description = tolower(description))
+               description = tolower(description),
+               description = str_remove(description, pattern = "(\n|<br />)"), # Remove new lines and breaks
+               description = str_remove(description, pattern = "[[:punct:]]+")
+               )
 
 # TODO: This is super slow for large DF
 avg_description_sentiments <- all_videos_df %>% 
