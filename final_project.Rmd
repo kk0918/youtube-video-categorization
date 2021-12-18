@@ -116,6 +116,7 @@ base_recipe <-
   recipe(category_title ~ views + likes + dislikes + comment_count +
            comments_disabled + ratings_disabled + video_error_or_removed,
          data = training) %>% 
+  step_nzv(all_numeric_predictors()) %>%
   step_center(all_numeric_predictors()) %>% 
   step_scale(all_numeric_predictors()) %>%
   prep()
@@ -262,8 +263,8 @@ conf_mat_tuned_results_br <- bind_cols(testing_br,
           predict(rf_tuned_fit_br, new_data = testing_br)) %>%
   conf_mat(truth = broad_category, estimate = .pred_class)
 
-conf_mat_tuned_results
-summary(conf_mat_tuned_results)
+conf_mat_tuned_results_br
+summary(conf_mat_tuned_results_br)
 ```
 
 ### Analysis Part Three - Feature Engineering
@@ -271,7 +272,7 @@ The third analysis builds on the first analysis by adding more engineered featur
 
 ## Assign sentiment scores to description 
 ```{r Analysis Part Three}
-# TODO: Determine if we even want to try this; clean description data if so (ex. remove website links and other unnecessary)
+# TODO: Determine if we even want to try this; clean description data if so (ex. remove website links and other unnecessary info)
 
 # Encoding
 all_videos_df
