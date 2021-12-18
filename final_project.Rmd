@@ -290,9 +290,8 @@ all_videos_sentiment_df <- mutate(all_videos_broad_df,
                                   description = tolower(description), 
                                   description = str_remove_all(description, pattern = "[[:punct:]]+"), # Remove punctuation 
                                   description = str_remove_all(description, pattern = "(#|@)[[:word:]]+"), # Remove words starting w @ or #
-                                  description = str_remove_all(description, pattern = "<.*?>") # Remove all text between < > 
+                                  description = str_remove_all(description, pattern = "(<[[:alnum:]]+>)+") # Remove all text between < > 
                                   )
-
 # Note - runs super slow for large DF
 avg_description_sentiments <- all_videos_sentiment_df %>% 
   select(description) %>%
