@@ -24,7 +24,7 @@ if (.Platform$OS.type == "windows") {
 
 # TODO: Determine whether to use all countries or a subset. Currently set to just US for sake of speed while developing and tuning our models.
 # countries <- c("CA", "DE", "FR", "GB", "IN", "JP", "KR", "MX", "RU", "US")
-countries <- c("US")  
+countries <- c("US", "CA")  
 
 ### Function to load data per country 
 load_country_data <- function(countries) {
@@ -44,6 +44,7 @@ load_country_data <- function(countries) {
       mutate(comments_disabled = as.logical(comments_disabled)) %>%
       mutate(ratings_disabled = as.logical(ratings_disabled)) %>%
       mutate(video_error_or_removed = as.logical(video_error_or_removed)) %>%
+      filter(!is.na(category_title)) %>%
       select(trending_date, views, likes, dislikes, comment_count, comments_disabled,
              ratings_disabled, video_error_or_removed, category_title, title, description, tags)
     
@@ -102,14 +103,16 @@ The first analysis seeks to create a model to classify trending youtube videos i
 
 ```{r Analysis Part One - Random Forest}
 set.seed(20211213) 
+
+category_levels <- select(all_videos_df, category_title) %>% distinct %>% unlist
 # Split data into 80/20, training and testing respectively
 all_split <- initial_split(all_videos_df, prob = 0.8, strata = category_title)
 all_train <- training(all_split)
 all_test <- testing(all_split)
 
 # Perform pre processing
-training <- all_train %>% mutate(category_title = as.ordered(category_title))
-testing <- all_test %>% mutate(category_title = as.ordered(category_title))
+training <- all_train %>% mutate(category_title = factor(category_title, levels = category_levels)) 
+testing <- all_test %>% mutate(category_title = factor(category_title, levels = category_levels))
 
 # Basic recipe
 base_recipe <- 
@@ -185,7 +188,7 @@ summary(conf_mat_tuned_results)
 ```
 
 ### Analysis Part Two - Reduce number of categories 
-In the first analysis, we classified the videos into 44 specific categories; perhaps, we can reduce the number of categories from 44 specific categories to 4 broader, more encompassing categories and examine if we can obtain a better result.
+In the first analysis, we classified the videos into 17 specific categories; perhaps, we can reduce the number of categories from 17 specific categories to 4 broader, more encompassing categories and examine if we can obtain a better result.
 
 ```{r Analysis Part Two}
 set.seed(20211213)
@@ -294,7 +297,7 @@ all_videos_sentiment_df <- mutate(all_videos_broad_df,
                                   description = str_remove_all(description, pattern = "(<[[:alnum:]]+>)+") # Remove all text between < > 
                                   )
 
-# Get sentimejts for each description - Note - runs super slow for large DF
+# Get sentiments for each description - Note - runs super slow for large DF
 avg_description_sentiments <- all_videos_sentiment_df %>% 
   select(description) %>%
   get_sentences() %>%
