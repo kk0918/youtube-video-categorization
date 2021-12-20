@@ -100,7 +100,7 @@ all_videos_df %>% ggplot(aes(x=views, y=comment_count, color=category_title)) +
 ### Analysis Part One - Raw Data
 The first analysis seeks to create a model to classify trending youtube videos into their corresponding Youtube category based on the raw data. 
 
-```{r Analysis Part One}
+```{r Analysis Part One - Random Forest}
 set.seed(20211213) 
 # Split data into 80/20, training and testing respectively
 all_split <- initial_split(all_videos_df, prob = 0.8, strata = category_title)
@@ -143,7 +143,8 @@ conf_mat_results
 summary(conf_mat_results)
 ```
 ## Tune Random Forest Parameters to view and quantify improvements
-```{r Analysis Part One Tuned parameters}
+```{r Analysis Part One Tuned Parameters Random Forest}
+set.seed(20211213) 
 # Tune Random Forest Parameters: mtry and min_n 
 # mtry = number of predictors that will be randomly sampled at each split when creating tree models
 # min_n = minimum number of data points in node required for node to be split further
@@ -156,7 +157,7 @@ rf_model_tune <- rand_forest(mtry = tune(), min_n = tune()) %>%
   set_mode("classification") %>% 
   set_args(trees = 1000)
 
-trees_folds <- vfold_cv(all_train)
+trees_folds <- vfold_cv(training)
 
 tune_recipe <- base_recipe
 
@@ -187,6 +188,7 @@ summary(conf_mat_tuned_results)
 In the first analysis, we classified the videos into 44 specific categories; perhaps, we can reduce the number of categories from 44 specific categories to 4 broader, more encompassing categories and examine if we can obtain a better result.
 
 ```{r Analysis Part Two}
+set.seed(20211213)
 # Reduce categories into 4 broader categories
 all_videos_broad_df <- all_videos_df %>% 
   mutate(broad_category = case_when(category_title %in% c("Sports", "Travel & Events", "People & Blogs", "Autos & Vehicles",
@@ -239,6 +241,7 @@ summary(conf_mat_results_br)
 ## Tune Random Forest Parameters to view and quantify improvements
 Again, we will tune the random forest parameters, mtry and min_n, to quantify how much of an improvement we can obtain.
 ```{r Analysis Part Two Tuned parameters}
+set.seed(20211213)
 # Tune Random Forest Parameters: mtry and min_n 
 
 rf_model_tune_br <- rand_forest(mtry = tune(), min_n = tune()) %>%
@@ -281,8 +284,6 @@ The third analysis builds on the first analysis by adding more engineered featur
 
 ## Assign sentiment scores to description 
 ```{r Analysis Part Three Sentiment}
-# TODO: Determine if we even want to try this; clean description data if so (ex. remove website links and other unnecessary info)
-
 # Encoding/ pre processing text
 all_videos_sentiment_df <- mutate(all_videos_broad_df,
                                   description = iconv(description, from = "UTF-8", to = "ASCII//TRANSLIT", 
@@ -292,14 +293,55 @@ all_videos_sentiment_df <- mutate(all_videos_broad_df,
                                   description = str_remove_all(description, pattern = "(#|@)[[:word:]]+"), # Remove words starting w @ or #
                                   description = str_remove_all(description, pattern = "(<[[:alnum:]]+>)+") # Remove all text between < > 
                                   )
-# Note - runs super slow for large DF
+
+# Get sentimejts for each description - Note - runs super slow for large DF
 avg_description_sentiments <- all_videos_sentiment_df %>% 
   select(description) %>%
   get_sentences() %>%
   sentiment_by()
 
 all_videos_with_description_sentiment <- bind_cols(all_videos_broad_df, avg_description_sentiments)
+```
 
+## Explore and Visualize Sentiments
+Detour to examine what the sentiments look like across these tweets and if there are any trends we can identify before we use this as an additional feature. 
+
+Plot word count vs sentiment scores
+```{r Sentiment word count vs sentiment score}
+all_videos_with_description_sentiment %>%
+  ggplot(aes(x=word_count, y=ave_sentiment, color=broad_category)) +
+  geom_point() + theme(axis.text.x = element_text(angle = 90)) + 
+  ggtitle("Trending Category Video Word Count vs Sentiment") + theme(plot.title = element_text(hjust = 0.5))
+```
+
+Determine most positive and negative tweet
+```{r Most positive and negative tweet}
+most_positive_tweet_row <- which.max(all_videos_with_description_sentiment$ave_sentiment)
+
+most_negative_tweet_row <- which.min(all_videos_with_description_sentiment$ave_sentiment)
+
+all_videos_with_description_sentiment %>% 
+  filter(row_number() == most_positive_tweet_row) %>%
+  select(title, description, ave_sentiment)
+
+all_videos_with_description_sentiment %>% 
+  filter(row_number() == most_negative_tweet_row) %>%
+  select(title, description, ave_sentiment)
+```
+
+Visualizing the sentiment scores vs word counts across the broad categories reveals no discernible pattern. Perhaps, we can try plotting the densities to reveal more latent patterns.
+```{r Sentiment density plot by category}
+all_videos_with_description_sentiment %>% 
+  ggplot(aes(x = ave_sentiment, y = ..density..)) +
+  geom_histogram(bins = 20) +
+  facet_wrap(~broad_category) + 
+  ggtitle("Trending Category Video Sentiment Scores Density by Category") + theme(plot.title = element_text(hjust = 0.5))
+```
+Again, the plot does not seem to tell us how the sentiment provides any additional information to a specific broad category. Nonetheless, we will try to utilize the sentiment scores as an extra feature and determine how well it improves or worsens our model in the next step. 
+
+## Build Tuned Random Forest Modelwith Sentiment Scores for Broad Categories
+```{r Tuned Random Forest Broad Categories}
+set.seed(20211213)
 # Split data into 80/20, training and testing respectively
 sentiment_split <- initial_split(all_videos_with_description_sentiment, prob = 0.8, strata = broad_category)
 sentiment_train <- training(sentiment_split)
@@ -319,7 +361,7 @@ sentiment_recipe <-
   step_scale(all_numeric_predictors()) %>%
   prep()
 
-sentiment_rf_model <- rand_forest() %>%
+sentiment_rf_model <- rand_forest(mtry = tune(), min_n = tune()) %>%
   set_engine("randomForest",
              num.threads = parallel::detectCores(), 
              importance = TRUE, 
@@ -327,11 +369,21 @@ sentiment_rf_model <- rand_forest() %>%
   set_mode("classification") %>% 
   set_args(trees = 1500)
 
+sentiment_trees_folds_br <- vfold_cv(sentiment_training)
+
 sentiment_rf_wf <- workflow() %>% 
   add_model(sentiment_rf_model) %>% 
   add_recipe(sentiment_recipe)
 
-sentiment_rf_fit <- fit(sentiment_rf_wf, sentiment_training)
+sentiment_tuned_results <- tune_grid(sentiment_rf_wf, resamples = sentiment_trees_folds_br, grid = 10)
+
+sentiment_most_accurate <- 
+  sentiment_tuned_results %>% 
+  select_best("accuracy")
+
+sentiment_final_wf_br <- finalize_workflow(sentiment_rf_wf, sentiment_most_accurate)
+
+sentiment_rf_fit <- fit(sentiment_final_wf_br, sentiment_training)
 sentiment_conf_mat_results <- bind_cols(sentiment_testing,
           predict(sentiment_rf_fit, new_data = sentiment_testing)) %>%
   conf_mat(truth = broad_category, estimate = .pred_class)
@@ -339,3 +391,5 @@ sentiment_conf_mat_results <- bind_cols(sentiment_testing,
 sentiment_conf_mat_results
 summary(sentiment_conf_mat_results)
 ```
+
+
