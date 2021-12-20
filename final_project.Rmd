@@ -24,7 +24,7 @@ if (.Platform$OS.type == "windows") {
 
 # TODO: Determine whether to use all countries or a subset. Currently set to just US for sake of speed while developing and tuning our models.
 # countries <- c("CA", "DE", "FR", "GB", "IN", "JP", "KR", "MX", "RU", "US")
-countries <- c("US", "CA")  
+countries <- c("US")  
 
 ### Function to load data per country 
 load_country_data <- function(countries) {
