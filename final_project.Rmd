@@ -112,12 +112,12 @@ all_test <- testing(all_split)
 
 # Perform pre processing
 training <- all_train %>% mutate(category_title = factor(category_title, levels = category_levels)) 
-testing <- all_test %>% mutate(category_title = factor(category_title, levels = category_levels))
+testing <- all_test %>% mutate(category_title = factor(category_title, levels = category_levels)) 
 
 # Basic recipe
 base_recipe <- 
   recipe(category_title ~ views + likes + dislikes + comment_count +
-           comments_disabled + ratings_disabled + video_error_or_removed,
+           comments_disabled + ratings_disabled,
          data = training) %>% 
   step_nzv(all_numeric_predictors()) %>%
   step_center(all_numeric_predictors()) %>% 
@@ -144,7 +144,12 @@ conf_mat_results <- bind_cols(testing,
 
 conf_mat_results
 summary(conf_mat_results)
+
+library(vip)
+extract_fit_parsnip(rf_fit) %>% vip
 ```
+
+
 ## Tune Random Forest Parameters to view and quantify improvements
 ```{r Analysis Part One Tuned Parameters Random Forest}
 set.seed(20211213) 
@@ -185,7 +190,56 @@ conf_mat_tuned_results <- bind_cols(testing,
 
 conf_mat_tuned_results
 summary(conf_mat_tuned_results)
+
+extract_fit_parsnip(rf_tuned_fit) %>% vip
 ```
+
+
+## Add lasso regularization (multiclass)for comparison
+```{r Analysis Part One Tuned Parameters Boosting model}
+doParallel::registerDoParallel()
+set.seed(20211213)
+# Tune lasso Parameters:  penalty and mixture
+# penalty = A non-negative number representing the total amount of regularization
+# mixture = A number between zero and one (inclusive) that is the proportion of L1 regularization (i.e. lasso) in the model. When mixture = 1, it is a pure lasso model while mixture = 0 indicates that ridge regression is being used.
+
+lasso_model_tune <- multinom_reg(penalty = tune(), mixture = tune()) %>%
+  set_mode("classification") %>%
+  set_engine("glmnet")
+  
+lasso_tuned_wf <- workflow() %>% 
+  add_model(lasso_model_tune) %>% 
+  add_recipe(tune_recipe)
+
+lasso_folds <- vfold_cv(training, strata = category_title)
+lambda <- grid_regular(penalty(), mixture(), levels = 10)
+
+tuned_results_lasso <- tune_grid(
+  lasso_tuned_wf, 
+  lasso_folds, 
+  grid = lambda,
+  control = control_resamples(save_pred = TRUE)
+)
+
+tuned_results_lasso
+
+most_accurate_lasso <- 
+  tuned_results_lasso %>% 
+  select_best("accuracy")
+
+final_wf_lasso <- finalize_workflow(lasso_tuned_wf, most_accurate_lasso)
+
+lasso_tuned_fit <- fit(final_wf_lasso, data = training)
+conf_mat_tuned_lasso <- bind_cols(testing,
+                                  predict(lasso_tuned_fit, new_data = testing)) %>%
+  conf_mat(truth = category_title, estimate = .pred_class)
+
+conf_mat_tuned_lasso
+summary(conf_mat_tuned_lasso)
+
+extract_fit_parsnip(lasso_tuned_fit) %>% vip
+```
+
 
 ### Analysis Part Two - Reduce number of categories 
 In the first analysis, we classified the videos into 17 specific categories; perhaps, we can reduce the number of categories from 17 specific categories to 4 broader, more encompassing categories and examine if we can obtain a better result.
@@ -214,7 +268,7 @@ testing_br <- broad_test %>% mutate(broad_category = as.ordered(broad_category))
 # recipe for broader categories
 broad_recipe <- 
   recipe(broad_category ~ views + likes + dislikes + comment_count +
-           comments_disabled + ratings_disabled + video_error_or_removed,
+           comments_disabled + ratings_disabled,
          data = training_br) %>% 
   step_nzv(all_numeric_predictors()) %>%
   step_center(all_numeric_predictors()) %>% 
@@ -240,6 +294,8 @@ conf_mat_results_br <- bind_cols(testing_br,
 
 conf_mat_results_br
 summary(conf_mat_results_br)
+
+extract_fit_parsnip(rf_fit_br) %>% vip
 ```
 ## Tune Random Forest Parameters to view and quantify improvements
 Again, we will tune the random forest parameters, mtry and min_n, to quantify how much of an improvement we can obtain.
@@ -280,7 +336,51 @@ conf_mat_tuned_results_br <- bind_cols(testing_br,
 
 conf_mat_tuned_results_br
 summary(conf_mat_tuned_results_br)
+
+extract_fit_parsnip(rf_tuned_fit_br) %>% vip
 ```
+
+## Add Tuned lasso model with reduced categories for comparison
+```{r Analysis Part Two tuned lasso}
+set.seed(20211213)
+
+lasso_model_tune_br <- multinom_reg(penalty = tune(), mixture = tune()) %>%
+  set_mode("classification") %>%
+  set_engine("glmnet")
+  
+lasso_tuned_wf_br <- workflow() %>% 
+  add_model(lasso_model_tune_br) %>% 
+  add_recipe(tune_recipe_br)
+
+lasso_folds_br <- vfold_cv(training_br, strata = broad_category)
+
+tuned_results_lasso_br <- tune_grid(
+  lasso_tuned_wf_br, 
+  lasso_folds_br, 
+  grid = lambda,
+  control = control_resamples(save_pred = TRUE)
+)
+
+tuned_results_lasso_br
+
+most_accurate_lasso_br <- 
+  tuned_results_lasso_br %>% 
+  select_best("accuracy")
+
+final_wf_lasso_br <- finalize_workflow(lasso_tuned_wf_br, most_accurate_lasso)
+
+lasso_tuned_fit_br <- fit(final_wf_lasso_br, data = training_br)
+conf_mat_tuned_lasso_br <- bind_cols(testing_br,
+                                  predict(lasso_tuned_fit_br, new_data = testing_br)) %>%
+  conf_mat(truth = broad_category, estimate = .pred_class)
+
+conf_mat_tuned_lasso_br
+summary(conf_mat_tuned_lasso_br)
+
+extract_fit_parsnip(lasso_tuned_fit_br) %>% vip
+```
+
+
 
 ### Analysis Part Three - Feature Engineering
 The third analysis builds on the first analysis by adding more engineered features and determining the impact these features have on the model itself. 
@@ -357,7 +457,7 @@ sentiment_testing <- sentiment_test %>% mutate(broad_category = as.ordered(broad
 # Recipe for broad categories with sentiment 
 sentiment_recipe <- 
   recipe(broad_category ~ views + likes + dislikes + comment_count +
-           comments_disabled + ratings_disabled + video_error_or_removed + ave_sentiment,
+           comments_disabled + ratings_disabled + ave_sentiment,
          data = sentiment_training) %>% 
   step_nzv(all_numeric_predictors()) %>%
   step_center(all_numeric_predictors()) %>% 
@@ -393,6 +493,51 @@ sentiment_conf_mat_results <- bind_cols(sentiment_testing,
 
 sentiment_conf_mat_results
 summary(sentiment_conf_mat_results)
+
+extract_fit_parsnip(sentiment_rf_fit) %>% vip
 ```
 
 
+## Add Tuned lasso model with sentiment score for comparison
+```{r Analysis Part Three tuned lasso}
+set.seed(20211213)
+
+lasso_model_sentiment <- multinom_reg(penalty = tune(), mixture = tune()) %>%
+  set_mode("classification") %>%
+  set_engine("glmnet")
+ 
+lasso_wf_sentiment <- workflow() %>% 
+  add_model(lasso_model_sentiment) %>% 
+  add_recipe(sentiment_recipe)
+
+lasso_folds_sentiment <- vfold_cv(sentiment_training, strata = broad_category)
+
+tuned_results_lasso_sentiment <- tune_grid(
+  lasso_wf_sentiment, 
+  lasso_folds_sentiment, 
+  grid = lambda,
+  control = control_resamples(save_pred = TRUE)
+)
+
+tuned_results_lasso_sentiment
+
+most_accurate_lasso_sentiment <- 
+  tuned_results_lasso_sentiment %>% 
+  select_best("accuracy")
+
+final_wf_lasso_sentiment <- finalize_workflow(lasso_wf_sentiment, most_accurate_lasso_sentiment)
+
+lasso_tuned_fit_sentiment <- fit(final_wf_lasso_sentiment, data = sentiment_training)
+conf_mat_tuned_lasso_sentiment <- bind_cols(sentiment_testing,
+                                  predict(lasso_tuned_fit_sentiment, new_data = sentiment_testing)) %>%
+  conf_mat(truth = broad_category, estimate = .pred_class)
+
+conf_mat_tuned_lasso_sentiment
+summary(conf_mat_tuned_lasso_sentiment)
+
+extract_fit_parsnip(lasso_tuned_fit_sentiment) %>% vip
+```
+
+
+### Conclusion
+   The raw data we used for this project is the most popular YouTube videos in the U.S, and the target variable we investigated is the category of each video. We firstly use Random Forest model with raw data, which has 17 categories, and compared the accuracy of tuned Random Forest model and tuned Lasso model. Then we tried to reclassify 17 categories into 4 broader categories, and then compared RF and Lasso models as well. Last part, we added sentiment score of the video description as another explanatory variable in our models. We tuned RF and Lasso model and concluded that among all three analysis parts, RF model is better than Lasso model regarding the accuracy. By adding sentiment score and using broader categories, the accuracy of our model increased.
