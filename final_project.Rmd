@@ -1,11 +1,26 @@
 ---
-title: "Final_Project"
+title: "QMSS 5058 Final Project"
 author: "Billy Kwon and Yixuan Li"
 date: "12/12/2021"
 output: pdf_document
 ---
 
-```{r data setup, include=FALSE}
+# Youtube Category Categorization Analysis
+
+## Introduction
+The goal of this analysis is to create a model to predict the category of a trending YouTube video based on its properties. Categories are defined as the general grouping to which these trending videos belong. There are 44 unique categories; however, not all of these categories appear since many trending videos often belong to the same category. Some example categories include Comedy, News & Politics, Howto & Style, Entertainment, Autos & Vehicles, and Music. 
+
+The first part of the study will focus on grouping the trending videos into their appropriate category; there are 15 categories present in the US dataset. The second part of this study will focus on grouping the videos into broader categories. This means we will reduce the number of categories by grouping them together under more encompassing "umbrella" terms: Activities, Entertainment, Film & TV, and Other. The final part of this study involves creating a new sentiment analysis feature on the videos' descriptions to determine if that improves or worsens our models.
+
+## Data Description
+The data contains trending YouTube video categories for 10 countries: Russia, Mexico, South Korea, Japan, India, USA, Great Britain, Germany, Canada, and France. While the ultimate goal would be to use all of the provided data for all of the countries, we decided to limit this study to the United States due to computational resource limitations. It is important to note that we created the data loading capabilities and functionality with enough flexibility to load any number of country's data. A future improvement would definitely involve training these models across all data sets (noting that we would only use the countries with English as a primary language for the sentiment portion of the study).
+
+The US data set used in this analysis contains 6455 unique observations with 16 variables: video_id, title, channel_title, category_id, tags, views, likes, dislikes, comment_total, thumbnail_link, and date. The trending video dates span from January 12, 2017 to January 31, 2018.
+
+The data can be found at https://www.kaggle.com/datasnaek/youtube-new?select=USvideos.csv. 
+
+## Setup
+```{r data setup}
 # Load packages -----------------------------------------------------------
 library(jsonlite)
 library(dplyr)
@@ -22,7 +37,7 @@ if (.Platform$OS.type == "windows") {
 # Clean and load data -----------------------------------------------------
 # Data source from https://www.kaggle.com/datasnaek/youtube-new?select=USvideos.csv 
 
-# TODO: Determine whether to use all countries or a subset. Currently set to just US for sake of speed while developing and tuning our models.
+# Currently, we are just using the US dataset; we can uncomment below to use all datasets; however, it appears we do not have enough computing resources to perform analysis on data outside the US.
 # countries <- c("CA", "DE", "FR", "GB", "IN", "JP", "KR", "MX", "RU", "US")
 countries <- c("US")  
 
@@ -60,12 +75,11 @@ load_country_data <- function(countries) {
 all_videos_df <- load_country_data(countries = countries)
 ```
 
-
-```{r data description}
+```{r summary of data description}
 summary(all_videos_df)
 ```
 
-### Visualization
+# Trending YouTube Video Category Visualizations
 
 ```{r counts of each category}
 all_videos_df %>% group_by(category_title) %>% 
@@ -77,13 +91,14 @@ all_videos_df %>% group_by(category_title) %>%
   theme(axis.text.x = element_text(angle = 90)) +
   ggtitle("Trending Category Video Counts") + theme(plot.title = element_text(hjust = 0.5))
 ```
-
+The above plot illustrates the trending video counts by category. It appears that Entertainment has the highest number of trending videos while Shows has the lowest number of trending videos. This does align with our expectations since Entertainment, Music, Howto & Style, Comedy, and News & Politics are often the types of videos people spread around and link to on places like blogs.
 
 ```{r plot views by categories}
 all_videos_df %>% ggplot(aes(x=category_title, y=views, color=category_title)) + geom_point() +
     theme(axis.text.x = element_text(angle = 90)) +
     ggtitle("Trending Category Video Views") + theme(plot.title = element_text(hjust = 0.5))
 ```
+The above plot shows the trending category video views. This plot was generated to get an idea of how much views the videos in these categories generate. Music appears to have an outlier with a very high view data point; however, most other categories appear to have video views in the millions range. Shows, Education, Autos & Vehicles, and Travel & Events appear to have some of the lowest views. 
 
 ```{r plot comments by categories}
 all_videos_df %>% ggplot(aes(x=category_title, y=comment_count, color=category_title)) +
@@ -91,16 +106,19 @@ all_videos_df %>% ggplot(aes(x=category_title, y=comment_count, color=category_t
   ggtitle("Trending Category Video Comment Count") + theme(plot.title = element_text(hjust = 0.5))
 
 ```
+The above plot maps the comment count to the categories. This plot provides similar information to the trending category video views plot but on a different scale since the comment counts are much lower than the view counts. Again, categories such as Shows, Education, Autos & Vehicles, and Travel & Event have low comment counts while categories such as Music, Entertainment, and People & Blogs have a high comment count.
 
 ```{r plot comments v.s. views}
 all_videos_df %>% ggplot(aes(x=views, y=comment_count, color=category_title)) +
   geom_point() + theme(axis.text.x = element_text(angle = 90)) +
   ggtitle("Trending Views vs Comment Counts per Category") + theme(plot.title = element_text(hjust = 0.5))
 ```
+The final plot was generated to map views to the comment count and determine if there was an identifiable trend. It appears that generally the greater number of views, the greater the number of comment counts. There is a large cluster of data within the small number of views and comment count section, and there are many videos with high iews and low comment counts and vice versa. Some of this could be explained by the fact that some videos have comments disabled. Furthermore, the categories denote the color of the datapoints. 
 
-### Analysis Part One - Raw Data
-The first analysis seeks to create a model to classify trending youtube videos into their corresponding Youtube category based on the raw data. 
+# Analysis Part One - Raw Data
+We begin our analysis by creating a Random Forest model to classify trending YouTube videos into their corresponding YouTube category based on the minimally processed raw data. This entails predicting the category title using views, likes, dislikes, comment_count, comments_disabled, and ratings disabled. We will iterate upon this initial model to determine if we can accurately classify the category on testing data.
 
+## Random Forest
 ```{r Analysis Part One - Random Forest}
 set.seed(20211213) 
 
@@ -142,17 +160,15 @@ conf_mat_results <- bind_cols(testing,
           predict(rf_fit, new_data = testing)) %>%
   conf_mat(truth = category_title, estimate = .pred_class)
 
-conf_mat_results
 summary(conf_mat_results)
 
 library(vip)
 extract_fit_parsnip(rf_fit) %>% vip
 ```
-
+We can see that the accuracy with this Random Forest is only about 32% and likes and views were the two most important features in our training model. Furthermore, many categories had no predicted events at all! The next step will involving tuning some of our model parameters, mtry and min_n, to determine if this improves our model. 
 
 ## Tune Random Forest Parameters to view and quantify improvements
-```{r Analysis Part One Tuned Parameters Random Forest}
-set.seed(20211213) 
+```{r Analysis Part One Tuned Parameters Random Forest, cache=TRUE}
 # Tune Random Forest Parameters: mtry and min_n 
 # mtry = number of predictors that will be randomly sampled at each split when creating tree models
 # min_n = minimum number of data points in node required for node to be split further
@@ -179,8 +195,6 @@ most_accurate <-
   tuned_results %>% 
   select_best("accuracy")
 
-most_accurate
-
 final_tuned_wf <- finalize_workflow(rf_tuned_wf, most_accurate)
 
 rf_tuned_fit <- fit(final_tuned_wf, training)
@@ -188,17 +202,15 @@ conf_mat_tuned_results <- bind_cols(testing,
           predict(rf_tuned_fit, new_data = testing)) %>%
   conf_mat(truth = category_title, estimate = .pred_class)
 
-conf_mat_tuned_results
 summary(conf_mat_tuned_results)
 
 extract_fit_parsnip(rf_tuned_fit) %>% vip
 ```
+Tuning our model improved our model to about a 33% accuracy. Again, many categories had no predicted events at all, and likes and views were the two most important features. The next step will involve trying a tuned Lasso Model to compare with our Random Forest model.
 
-
-## Add lasso regularization (multiclass)for comparison
-```{r Analysis Part One Tuned Parameters Boosting model}
+## Try Lasso Regularization (multiclass) Model to compare with Random Forest Model
+```{r Analysis Part One Tuned Parameters Lasso model, cache=TRUE}
 doParallel::registerDoParallel()
-set.seed(20211213)
 # Tune lasso Parameters:  penalty and mixture
 # penalty = A non-negative number representing the total amount of regularization
 # mixture = A number between zero and one (inclusive) that is the proportion of L1 regularization (i.e. lasso) in the model. When mixture = 1, it is a pure lasso model while mixture = 0 indicates that ridge regression is being used.
@@ -206,10 +218,21 @@ set.seed(20211213)
 lasso_model_tune <- multinom_reg(penalty = tune(), mixture = tune()) %>%
   set_mode("classification") %>%
   set_engine("glmnet")
+
+lasso_recipe <- 
+  recipe(category_title ~ views + likes + dislikes + comment_count +
+           comments_disabled + ratings_disabled,
+         data = training) %>% 
+  step_mutate(ratings_disabled = as.numeric(ratings_disabled)) %>%
+  step_mutate(comments_disabled = as.numeric(comments_disabled)) %>%
+  step_nzv(all_numeric_predictors()) %>%
+  step_center(all_numeric_predictors()) %>% 
+  step_scale(all_numeric_predictors()) %>%
+  prep()
   
 lasso_tuned_wf <- workflow() %>% 
   add_model(lasso_model_tune) %>% 
-  add_recipe(tune_recipe)
+  add_recipe(lasso_recipe)
 
 lasso_folds <- vfold_cv(training, strata = category_title)
 lambda <- grid_regular(penalty(), mixture(), levels = 10)
@@ -220,8 +243,6 @@ tuned_results_lasso <- tune_grid(
   grid = lambda,
   control = control_resamples(save_pred = TRUE)
 )
-
-tuned_results_lasso
 
 most_accurate_lasso <- 
   tuned_results_lasso %>% 
@@ -234,18 +255,16 @@ conf_mat_tuned_lasso <- bind_cols(testing,
                                   predict(lasso_tuned_fit, new_data = testing)) %>%
   conf_mat(truth = category_title, estimate = .pred_class)
 
-conf_mat_tuned_lasso
 summary(conf_mat_tuned_lasso)
 
 extract_fit_parsnip(lasso_tuned_fit) %>% vip
 ```
+The Lasso Model proved to be much worse with an accuracy of around 26%. It is interesting to note that it values likes and dislikes as the most important features which is different than the Random Forest model. Perhaps we need to take a new approach. Let us try reducing the number of categories.
 
+# Analysis Part Two - Reduce number of categories 
+In the first analysis, we classified the videos into 15 specific categories; perhaps, we can reduce the number of categories from 17 specific categories to 4 broader, more encompassing categories and examine if we can obtain a better result. The new broader categories include Activities, Entertainment, Film & TV, and Other.
 
-### Analysis Part Two - Reduce number of categories 
-In the first analysis, we classified the videos into 17 specific categories; perhaps, we can reduce the number of categories from 17 specific categories to 4 broader, more encompassing categories and examine if we can obtain a better result.
-
-```{r Analysis Part Two}
-set.seed(20211213)
+```{r Analysis Part Two Broad Categories, cache = TRUE}
 # Reduce categories into 4 broader categories
 all_videos_broad_df <- all_videos_df %>% 
   mutate(broad_category = case_when(category_title %in% c("Sports", "Travel & Events", "People & Blogs", "Autos & Vehicles",
@@ -292,15 +311,15 @@ conf_mat_results_br <- bind_cols(testing_br,
           predict(rf_fit_br, new_data = testing_br)) %>%
   conf_mat(truth = broad_category, estimate = .pred_class)
 
-conf_mat_results_br
 summary(conf_mat_results_br)
 
 extract_fit_parsnip(rf_fit_br) %>% vip
 ```
+Using broader and more encompassing categories appeared to improve our accuracy by roughly 10%. We now have an accuracy of 42%. Let us tune the model to see if we can further improve this measurement. 
+
 ## Tune Random Forest Parameters to view and quantify improvements
 Again, we will tune the random forest parameters, mtry and min_n, to quantify how much of an improvement we can obtain.
-```{r Analysis Part Two Tuned parameters}
-set.seed(20211213)
+```{r Analysis Part Two RF Tuned parameters, cache = TRUE}
 # Tune Random Forest Parameters: mtry and min_n 
 
 rf_model_tune_br <- rand_forest(mtry = tune(), min_n = tune()) %>%
@@ -334,23 +353,32 @@ conf_mat_tuned_results_br <- bind_cols(testing_br,
           predict(rf_tuned_fit_br, new_data = testing_br)) %>%
   conf_mat(truth = broad_category, estimate = .pred_class)
 
-conf_mat_tuned_results_br
 summary(conf_mat_tuned_results_br)
 
 extract_fit_parsnip(rf_tuned_fit_br) %>% vip
 ```
+After tuning the parameters, we obtain a similar accuracy of 42%. Let us again try the the Lasso model for comparison.
 
-## Add Tuned lasso model with reduced categories for comparison
-```{r Analysis Part Two tuned lasso}
-set.seed(20211213)
-
+## Add Tuned Lasso Model with Broad Categories for Comparison
+```{r Analysis Part Two Tuned lasso, cache=TRUE}
 lasso_model_tune_br <- multinom_reg(penalty = tune(), mixture = tune()) %>%
   set_mode("classification") %>%
   set_engine("glmnet")
+
+lasso_recipe_br <- 
+  recipe(broad_category ~ views + likes + dislikes + comment_count +
+           comments_disabled + ratings_disabled,
+         data = training_br) %>% 
+  step_mutate(ratings_disabled = as.numeric(ratings_disabled)) %>%
+  step_mutate(comments_disabled = as.numeric(comments_disabled)) %>%
+  step_nzv(all_numeric_predictors()) %>%
+  step_center(all_numeric_predictors()) %>% 
+  step_scale(all_numeric_predictors()) %>%
+  prep()
   
 lasso_tuned_wf_br <- workflow() %>% 
   add_model(lasso_model_tune_br) %>% 
-  add_recipe(tune_recipe_br)
+  add_recipe(lasso_recipe_br)
 
 lasso_folds_br <- vfold_cv(training_br, strata = broad_category)
 
@@ -374,18 +402,22 @@ conf_mat_tuned_lasso_br <- bind_cols(testing_br,
                                   predict(lasso_tuned_fit_br, new_data = testing_br)) %>%
   conf_mat(truth = broad_category, estimate = .pred_class)
 
-conf_mat_tuned_lasso_br
 summary(conf_mat_tuned_lasso_br)
 
 extract_fit_parsnip(lasso_tuned_fit_br) %>% vip
 ```
+The tuned Lasso Model has an accuracy of about 36%. So far we have seen that the random forest consistently performs better with this dataset. In the next analysis, we will add a new sentiment feature to these models.
 
+# Analysis Part Three - Sentiment analysis
+The third analysis builds on the previous analyses by adding an engineered sentiment feature and determining the impact this new feature has on the model itself. 
 
+We utilize the sentimentr library for sentiment analysis on the videos' descriptions. Sentimentr operates at the sentence level and incorporates valence shifters. 
 
-### Analysis Part Three - Feature Engineering
-The third analysis builds on the first analysis by adding more engineered features and determining the impact these features have on the model itself. 
+The sentimentr library and documentation can be found here: https://github.com/trinker/sentimentr. 
 
-## Assign sentiment scores to description 
+## Assign Sentiment Scores to Description 
+We first need to parse out some unnecessary text from the videos' descriptions. Sentimentr handles stop words already when computing its sentiment score. 
+
 ```{r Analysis Part Three Sentiment}
 # Encoding/ pre processing text
 all_videos_sentiment_df <- mutate(all_videos_broad_df,
@@ -407,7 +439,7 @@ all_videos_with_description_sentiment <- bind_cols(all_videos_broad_df, avg_desc
 ```
 
 ## Explore and Visualize Sentiments
-Detour to examine what the sentiments look like across these tweets and if there are any trends we can identify before we use this as an additional feature. 
+We will take a detour to examine what the sentiments look like across these tweets and if there are any trends we can identify before we use this as an additional feature. 
 
 Plot word count vs sentiment scores
 ```{r Sentiment word count vs sentiment score}
@@ -418,7 +450,7 @@ all_videos_with_description_sentiment %>%
 ```
 
 Determine most positive and negative tweet
-```{r Most positive and negative tweet}
+```{r Most positive and negative tweet, cache=TRUE}
 most_positive_tweet_row <- which.max(all_videos_with_description_sentiment$ave_sentiment)
 
 most_negative_tweet_row <- which.min(all_videos_with_description_sentiment$ave_sentiment)
@@ -440,11 +472,10 @@ all_videos_with_description_sentiment %>%
   facet_wrap(~broad_category) + 
   ggtitle("Trending Category Video Sentiment Scores Density by Category") + theme(plot.title = element_text(hjust = 0.5))
 ```
-Again, the plot does not seem to tell us how the sentiment provides any additional information to a specific broad category. Nonetheless, we will try to utilize the sentiment scores as an extra feature and determine how well it improves or worsens our model in the next step. 
+Again, the plot does not seem to tell us how the sentiment provides any additional information to a specific broad category. Nonetheless, we will try to utilize the sentiment scores as an extra feature and determine how well it improves or worsens our models in the next step. 
 
-## Build Tuned Random Forest Modelwith Sentiment Scores for Broad Categories
-```{r Tuned Random Forest Broad Categories}
-set.seed(20211213)
+## Build Tuned Random Forest Model with Sentiment Scores for Broad Categories
+```{r Tuned Random Forest Broad Categories, cache=TRUE}
 # Split data into 80/20, training and testing respectively
 sentiment_split <- initial_split(all_videos_with_description_sentiment, prob = 0.8, strata = broad_category)
 sentiment_train <- training(sentiment_split)
@@ -491,24 +522,34 @@ sentiment_conf_mat_results <- bind_cols(sentiment_testing,
           predict(sentiment_rf_fit, new_data = sentiment_testing)) %>%
   conf_mat(truth = broad_category, estimate = .pred_class)
 
-sentiment_conf_mat_results
 summary(sentiment_conf_mat_results)
 
 extract_fit_parsnip(sentiment_rf_fit) %>% vip
 ```
+The tuned Random Forest model produced an accuracy of 45% and the most important features were likes and views again. It is worth noting that the sentiment scores were not as important in these models but did have more of an impact than comments_disabled and ratings_disabled.
 
-
-## Add Tuned lasso model with sentiment score for comparison
-```{r Analysis Part Three tuned lasso}
-set.seed(20211213)
+## Add Tuned Lasso Model with Sentiment Scores for comparison
+```{r Analysis Part Three tuned lasso, cache=TRUE}
 
 lasso_model_sentiment <- multinom_reg(penalty = tune(), mixture = tune()) %>%
   set_mode("classification") %>%
   set_engine("glmnet")
+
+lasso_sentiment_recipe <- 
+  recipe(broad_category ~ views + likes + dislikes + comment_count +
+           comments_disabled + ratings_disabled + ave_sentiment,
+         data = sentiment_training) %>% 
+  step_mutate(ratings_disabled = as.numeric(ratings_disabled)) %>%
+  step_mutate(comments_disabled = as.numeric(comments_disabled)) %>%
+  step_nzv(all_numeric_predictors()) %>%
+  step_center(all_numeric_predictors()) %>% 
+  step_scale(all_numeric_predictors()) %>%
+  prep()
+
  
 lasso_wf_sentiment <- workflow() %>% 
   add_model(lasso_model_sentiment) %>% 
-  add_recipe(sentiment_recipe)
+  add_recipe(lasso_sentiment_recipe)
 
 lasso_folds_sentiment <- vfold_cv(sentiment_training, strata = broad_category)
 
@@ -532,12 +573,15 @@ conf_mat_tuned_lasso_sentiment <- bind_cols(sentiment_testing,
                                   predict(lasso_tuned_fit_sentiment, new_data = sentiment_testing)) %>%
   conf_mat(truth = broad_category, estimate = .pred_class)
 
-conf_mat_tuned_lasso_sentiment
 summary(conf_mat_tuned_lasso_sentiment)
 
 extract_fit_parsnip(lasso_tuned_fit_sentiment) %>% vip
 ```
 
+After running both the tuned Random Forest and Lasso Models for the broader YouTube Categories with sentiment scores, we can conclude that the tuned Random Forest model with the sentiment scores is the most accurate model with an accuracy of 45%, a slight increase over not using the sentiments at all. The Lasso Model with the sentiment score had an accuracy of 37% which was a very slight improvement over the broad category Lasso Model without sentiment.
 
-### Conclusion
-   The raw data we used for this project is the most popular YouTube videos in the U.S, and the target variable we investigated is the category of each video. We firstly use Random Forest model with raw data, which has 17 categories, and compared the accuracy of tuned Random Forest model and tuned Lasso model. Then we tried to reclassify 17 categories into 4 broader categories, and then compared RF and Lasso models as well. Last part, we added sentiment score of the video description as another explanatory variable in our models. We tuned RF and Lasso model and concluded that among all three analysis parts, RF model is better than Lasso model regarding the accuracy. By adding sentiment score and using broader categories, the accuracy of our model increased.
+# Conclusion
+
+The raw data we used for this project is the most popular YouTube videos in the U.S, and the target variable we investigated is the category of each video. We first used the Random Forest model with raw data, which has 15 categories, and compared the accuracy of a Random Forest model with the tuned Lasso model. Subsequently, we tried to reclassify 15 categories into 4 broader categories, and then compared the Random Forest and Lasso models again. Ultimately, we added sentiment scores of the video descriptions as another explanatory variable in our models. We tuned the Random Forest and Lasso models and concluded that among all three analyses, the Random Forest model is better than the Lasso model in terms of accuracy. By adding sentiment score and using broader categories, the accuracy of our model increased.
+
+As mentioned in the introduction, we believe we would be able to obtain a better accuracy with a larger data set. In fact, we do have access to more trending YouTube video data sets in different countries; however, the computing time exponentially increased when using these additional data sets. 
